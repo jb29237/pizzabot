@@ -1,2 +1,2 @@
 # pizzabot
-Pizzabout client and pizzabout webserver to make text-to-speech calls with SSML
+Pizzabot client and pizzabot webserver to make text-to-speech calls with SSML
