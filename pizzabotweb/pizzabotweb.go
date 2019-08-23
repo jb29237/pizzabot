@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/gorilla/websocket"
 )
 
 //twilio account SID
@@ -27,14 +30,21 @@ var callto = os.Getenv("PIZZACALLTO")
 //your twilio number that can make outbound calls
 var callfrom = os.Getenv("PIZZACALLFROM")
 
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
 func main() {
 
 	println(twilaccount)
 	println(twiltoken)
 	http.HandleFunc("/twiml", xmlpost)
+	http.HandleFunc("/audiooutput", audioWebsocket)
 	http.HandleFunc("/call", call)
 	http.HandleFunc("/upload", uploadHandler)
 	http.HandleFunc("/download", downloadHandler)
+
 	http.ListenAndServe(":3030", nil)
 
 }
@@ -46,7 +56,7 @@ func call(w http.ResponseWriter, r *http.Request) {
 	v := url.Values{}
 	v.Set("To", callto)
 	v.Set("From", callfrom)
-	v.Set("Url", ngrokurl+"/twiml")
+	v.Set("Url", "https://"+ngrokurl+"/twiml")
 	println(ngrokurl)
 	rb := *strings.NewReader(v.Encode())
 
@@ -77,8 +87,16 @@ func xmlgen(x1 string, x2 string) []byte {
 	var xmlmp3 = x2
 	type Response struct {
 		XMLName xml.Name `xml:"Response"`
-		Play    string   `xml:"Play"`
-		Pause   struct {
+		Start   struct {
+			XMLName xml.Name `xml:"Start"`
+			Stream  struct {
+				XMLName xml.Name `xml:"Stream"`
+				URL     string   `xml:"url,attr"`
+				Text    string   `xml:",chardata"`
+			}
+		}
+		Play  string `xml:"Play"`
+		Pause struct {
 			XMLName xml.Name `xml:"Pause"`
 			Length  string   `xml:"length,attr"`
 		}
@@ -94,6 +112,7 @@ func xmlgen(x1 string, x2 string) []byte {
 	twiml.Pause.Length = "5"
 	twiml.Redirect.Method = "POST"
 	twiml.Redirect.Text = xmlurl
+	twiml.Start.Stream.URL = "wss://" + ngrokurl + "/audiooutput"
 	sh, err := xml.Marshal(twiml)
 	if err != nil {
 		panic(err)
@@ -104,7 +123,7 @@ func xmlgen(x1 string, x2 string) []byte {
 func xmlpost(w http.ResponseWriter, r *http.Request) {
 
 	//twiml.Redirect.URL = "http://thisistheurl.com"
-	v := xmlgen(ngrokurl+"/twiml", ngrokurl+"/download")
+	v := xmlgen("https://"+ngrokurl+"/twiml", "https://"+ngrokurl+"/download")
 	w.Header().Set("Content-Type", "application/xml")
 	//w.Header().Add("Cache-Control:", "no-cache")
 	//println(v)
@@ -127,4 +146,37 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	//w.Header().Set("Cache-Control", "no-cache")
 	http.ServeFile(w, r, "outputpost.mp3")
 
+}
+
+func audioWebsocket(w http.ResponseWriter, r *http.Request) {
+
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+	}
+	// helpful log statement to show connections
+	log.Println("Client Connected")
+
+	reader(ws)
+}
+
+func reader(conn *websocket.Conn) {
+	for {
+		// read in a message
+		messageType, p, err := conn.ReadMessage()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		// print out that message for clarity
+		fmt.Println(string(p))
+
+		if err := conn.WriteMessage(messageType, p); err != nil {
+			log.Println(err)
+			return
+		}
+
+	}
 }
