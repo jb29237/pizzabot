@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -150,6 +151,7 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 
 func audioWebsocket(w http.ResponseWriter, r *http.Request) {
 
+	//skip CORS till deploy to real world
 	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -165,15 +167,35 @@ func audioWebsocket(w http.ResponseWriter, r *http.Request) {
 func reader(conn *websocket.Conn) {
 	for {
 		// read in a message
-		messageType, p, err := conn.ReadMessage()
+		messageType, data, err := conn.ReadMessage()
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		// print out that message for clarity
-		fmt.Println(string(p))
+		// log that message for clarity
+		f, err := os.OpenFile("./logfile", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			panic(err)
+		}
+		/*
+				type AudioMessage struct {
+					Media struct {
+						//Track     string `json:"track"`
+						//Chunk     string `json:"chunk"`
+						//Timestamp string `json:"timestamp"`
+						Payload string `json:"payload"`
+					}
+				}
 
-		if err := conn.WriteMessage(messageType, p); err != nil {
+			var maudio []byte
+			json.Unmarshal(data, &maudio)
+		*/
+		defer f.Close()
+		//fmt.Fprintf(f, "%s", data)
+		dst := &bytes.Buffer{}
+		json.Indent(dst, data, "", " ")
+		fmt.Println(dst.String())
+		if err := conn.WriteMessage(messageType, data); err != nil {
 			log.Println(err)
 			return
 		}
